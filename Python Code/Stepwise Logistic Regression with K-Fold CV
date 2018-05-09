@@ -1,0 +1,200 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Feb 11 21:32:35 2018
+
+@author: sashank bandhakavi
+"""
+
+import pandas as pd
+import numpy  as np
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
+from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import KFold
+from Class_replace_impute_encode import ReplaceImputeEncode
+from sklearn.metrics import confusion_matrix
+
+
+file_path = '/Users/sasha/Library/Mobile Documents/com~apple~CloudDocs/STAT 656/Data/'
+df = pd.read_excel(file_path+"credithistory_HW2(1).xlsx")
+target='price'
+# Place the number of observations in 'n_obs'
+n_obs      = df.shape[0]
+print("\n********** Data Preprocessing ***********")
+print("Data contains %i observations & %i columns.\n" %df.shape)
+print(df)
+
+# Identify Outliers and Set to Missing
+# Age should be between 1 and 120
+# Amount should be between 0 and 20,000
+# The categorical attributes should only contain the values in the dictionary
+# Check:  'savings', 'employed' and 'marital'
+# Recode:  Nominal and Ordinal values
+# Scale:  Interval values
+# Print the mean of all interval variables and the mode frequency for 
+# each nominal or ordinal variable
+
+initial_missing = df.isnull().sum()
+print(initial_missing)  
+feature_names = np.array(df.columns.values)
+for feature in feature_names:
+    if initial_missing[feature]>(n_obs/2):
+        print(feature+":\n\t%i missing: Drop this attribute." \
+                  %initial_missing[feature])
+
+     
+df=df.drop('purpose',axis=1)
+cat_map = {'good':0,'bad':1}
+   
+# Change the string categories to numbers 
+df['good_bad'] = df['good_bad'].map(cat_map)
+# First Integer Designates Data Type
+# 0=Interval, 1=Binary, 2=Nominal, 3=Other (No Changes, do not include)
+attribute_map = {
+    'age':[0,(0,120),[0,0]],
+    'amount':[0,(0,20000),[0,0]],
+    'duration':[0,(1,1000),[0,0]],
+    'checking':[2,(1,2,3,4),[0,0]],
+    'coapp':[2,(1,2,3),[0,0]],
+    'depends':[1,(1,2),[0,0]],
+    'employed':[2,(1,2,3,4,5),[0,0]],
+    'existcr':[2,(1,2,3,4),[0,0]],
+    'foreign':[1,(1,2),[0,0]],
+    'good_bad':[3,(0,1),[0,0]],
+    'history':[2,(0,1,2,3,4),[0,0]],
+    'housing':[2,(1,2,3),[0,0]],
+    'installp':[2,(1,2,3,4),[0,0]],
+    'job':[2,(1,2,3,4),[0,0]],
+    'marital':[2,(1,2,3,4),[0,0]],
+    'other':[2,(1,2,3),[0,0]],
+    'property':[2,(1,2,3,4),[0,0]],
+    'resident':[2,(1,2,3,4),[0,0]],
+    'savings':[2,(1,2,3,4,5),[0,0]],
+    'telephon':[1,(1,2),[0,0]]
+    }
+
+encoding = 'SAS'# Categorical encoding:  Use 'SAS', 'one-hot' or None
+scale    = None     # Interval scaling:  Use 'std', 'robust' or None
+# Now instantiate the class passing in the parameters setting your choices
+rie = ReplaceImputeEncode(data_map=attribute_map, nominal_encoding=encoding, \
+                          interval_scale = scale, display=True)
+# Now request replace-impute-encode for your dataframe
+encoded_df = rie.fit_transform(df)
+X= encoded_df
+y=df['good_bad']
+X_train, X_test, y_train, y_test = train_test_split(X,y,test_size = 0.3, random_state=7)
+#X_train=np.array(X_train)
+#X_test=np.array(X_test)
+#y_train=np.array(y_train)
+#y_test=np.array(y_test)  
+
+
+#mean, min, max
+np.mean(df["age"])
+min(df["age"])
+max(df["age"])
+np.mean(df["amount"])
+min(df["amount"])
+max(df["amount"])
+np.mean(df["duration"])
+np.nanmin(df["duration"])
+np.nanmax(df["duration"])
+
+
+
+
+#frequency tables 
+pd.crosstab(index=df["employed"],  # Make a crosstab
+                              columns="count")
+pd.crosstab(index=df["marital"],  # Make a crosstab
+                              columns="count")
+pd.crosstab(index=df["savings"],  # Make a crosstab
+                              columns="count")
+
+  #do kfold cross validation and forward step wise logistic regression      
+remaining = set(encoded_df.columns)
+response='good_bad'
+selected = []
+current_score, best_new_score = 0.0, 0.0
+while remaining and current_score == best_new_score:
+    scores_with_candidates = []
+    for candidate in remaining:   
+        #forward step wise columns
+        formula = selected + [candidate]
+        
+        X= X_train[formula]   
+        model = LogisticRegression()
+        kf = KFold(n_splits=4,random_state=7)
+        scoring = 'accuracy'
+        results = cross_val_score(model, X, y_train, cv=kf, scoring=scoring)
+        score= results.mean()       
+        scores_with_candidates.append((score, candidate))
+        
+    scores_with_candidates.sort()  
+    best_new_score, best_candidate = scores_with_candidates.pop()
+    if(best_new_score==current_score):
+        break;
+    if current_score < best_new_score:
+        print(best_new_score,current_score)
+        remaining.remove(best_candidate)
+        selected.append(best_candidate)
+        print(selected)
+        current_score = best_new_score
+
+#Best model is with the following attributes
+#['duration', 'checking0', 'property0', 'history0', 'employed0', 'job0']
+        
+#train model and calculate confusion matrix and its statistics        
+X_Final= X_train[['duration', 'checking0', 'property0', 'history0', 'employed0', 'job0']]   
+model_final= LogisticRegression()
+model_final.fit(X_Final, y_train)
+pred_train = model_final.predict(X_Final)
+tn_train, fp_train, fn_train, tp_train = confusion_matrix(y_train, pred_train).ravel()
+(tn_train, fp_train, fn_train, tp_train)
+
+from sklearn.metrics import classification_report
+
+#f1score and precision
+print(classification_report(y_train, pred_train))
+
+#sensitivity
+print("sensitivity_train: ", tp_train/(tp_train+fn_train))
+
+#specificity
+print("specificity_train: ", tn_train/(tn_train+fp_train))
+
+#accuracy
+print("accuracy_train: ", (tp_train+tn_train)/(tp_train+fn_train+tn_train+fp_train))
+
+
+
+#test model and calculate confusion matrix and its statistics   
+X_Final_test= X_test[['duration', 'checking0', 'property0', 'history0', 'employed0', 'job0']] 
+pred_test = model_final.predict(X_Final_test)
+confusion_matrix_test = confusion_matrix(y_test, pred_test)
+print(confusion_matrix_test)
+tn, fp, fn, tp = confusion_matrix(y_test, pred_test).ravel()
+(tn, fp, fn, tp)
+
+from sklearn.metrics import classification_report
+
+#f1 score and precision
+print(classification_report(y_test, pred_test))
+
+#sensitivity
+print("sensitivity_test: ", tp/(tp+fn))
+
+#specificity
+print("specificity_test: ", tn/(tn+fp))
+
+
+#accuracy
+print("accuracy_test: ", (tp+tn)/(tp+fn+tn+fp))
+
+#0.74
+
+
+
+
+
